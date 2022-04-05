@@ -29,31 +29,10 @@ func (g *GoProgram) CompileExpr(node parser.Node) ast.Expr {
 		} else if n.Setter {
 			return bst.Dot(g.CompileExpr(n.Receiver), strings.Title(strings.TrimSuffix(n.MethodName, "=")))
 		}
-		args := []ast.Expr{}
 		if n.Method == nil {
 			panic("Method not set on MethodCall " + n.String())
 		}
-		for i := 0; i < len(n.Method.Params); i++ {
-			p, _ := n.Method.GetParam(i)
-			switch p.Kind {
-			case parser.Positional:
-				args = append(args, g.CompileArg(n.Args[i]))
-			case parser.Named:
-				if i >= len(n.Args) {
-					args = append(args, g.CompileArg(p.Default))
-				} else if _, ok := n.Args[i].(*parser.KeyValuePair); ok {
-					args = append(args, g.CompileArg(p.Default))
-				} else {
-					args = append(args, g.CompileArg(n.Args[i]))
-				}
-			case parser.Keyword:
-				if arg, err := n.Args.FindByName(p.Name); err != nil {
-					args = append(args, g.CompileArg(p.Default))
-				} else {
-					args = append(args, g.CompileArg(arg.(*parser.KeyValuePair).Value))
-				}
-			}
-		}
+		args := types.UnwrapTypeExprs(g.CompileArgs(n, n.Args))
 		if n.Block != nil {
 			funcType := &ast.FuncType{
 				Params: &ast.FieldList{
@@ -68,8 +47,11 @@ func (g *GoProgram) CompileExpr(node parser.Node) ast.Expr {
 				Body: g.CompileBlockStmt(n.Block.Body.Statements),
 			})
 		}
-		//TODO take into account private/protected
-		return bst.Call(nil, strings.Title(n.MethodName), args...)
+		call := bst.Call(nil, strings.Title(n.MethodName), args...)
+		if n.HasSplat() {
+			call.Ellipsis = 1
+		}
+		return call
 	case *parser.IdentNode:
 		if n.MethodCall != nil {
 			return g.CompileExpr(n.MethodCall)
@@ -452,6 +434,70 @@ func (g *GoProgram) CompileSuperNode(node *parser.SuperNode) ast.Expr {
 		}
 	}
 	return bst.Call(nil, superVar, args...)
+}
+
+func (g *GoProgram) CompileArgs(call *parser.MethodCall, args parser.ArgsNode) []types.TypeExpr {
+	var argExprs, splatArgs []types.TypeExpr
+
+	for i := 0; i < len(call.Method.Params); i++ {
+		p, _ := call.Method.GetParam(i)
+		switch p.Kind {
+		case parser.Positional:
+			argExprs = append(argExprs, types.TypeExpr{p.Type(), g.CompileArg(args[i])})
+		case parser.Named:
+			if i >= len(args) {
+				argExprs = append(argExprs, types.TypeExpr{p.Type(), g.CompileArg(p.Default)})
+			} else if _, ok := args[i].(*parser.KeyValuePair); ok {
+				argExprs = append(argExprs, types.TypeExpr{p.Type(), g.CompileArg(p.Default)})
+			} else {
+				argExprs = append(argExprs, types.TypeExpr{p.Type(), g.CompileArg(args[i])})
+			}
+		case parser.Keyword:
+			if arg, err := args.FindByName(p.Name); err != nil {
+				argExprs = append(argExprs, types.TypeExpr{p.Type(), g.CompileArg(p.Default)})
+			} else {
+				argExprs = append(argExprs, types.TypeExpr{p.Type(), g.CompileArg(arg.(*parser.KeyValuePair).Value)})
+			}
+		case parser.Splat:
+			for _, arg := range call.SplatArgs() {
+				if splat, ok := arg.(*parser.SplatNode); ok {
+					/*
+						Ruby allows you to destructure with a splat argument to a splat parameter, e.g.
+						`foo(x, *y)` considers `x, *y` to be the single splat argument to `def foo(*arg); end`
+						Go, on the other hand, does not allow this, so in the case above we have to:
+
+						1. create an array of all non-splat args that correspond to a splat parameter
+						2. append the splat arg to that array
+						3. include the ellipsis after that
+
+						This results in something ugly in the target like `append([]T{x}, y...)...`, but it works.
+					*/
+					if len(splatArgs) == 0 {
+						arg = splat.Arg
+					} else {
+						var elements []ast.Expr
+						for _, a := range splatArgs {
+							elements = append(elements, a.Expr)
+						}
+						arr := &ast.CompositeLit{
+							Type: &ast.ArrayType{
+								Elt: g.it.Get(splatArgs[0].Type.GoType()),
+							},
+							Elts: elements,
+						}
+						appendCall := bst.Call(nil, "append", arr, g.CompileExpr(splat.Arg))
+						appendCall.Ellipsis = 1
+						splatArgs = []types.TypeExpr{
+							{splat.Arg.Type(), appendCall},
+						}
+						break
+					}
+				}
+				splatArgs = append(splatArgs, types.TypeExpr{arg.Type(), g.CompileArg(arg)})
+			}
+		}
+	}
+	return append(argExprs, splatArgs...)
 }
 
 func (g *GoProgram) CompileArg(node parser.Node) ast.Expr {

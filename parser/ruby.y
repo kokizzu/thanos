@@ -51,7 +51,7 @@ func root(yylex yyLexer) *Root {
 %type <node> arg_rhs arg_value method_call stmt if_tail opt_else none rel_expr string raw_string mlhs_item mlhs_node 
 %type <node_list> compstmt stmts root mlhs mlhs_basic mlhs_head mlhs_inner for_var
 %type <args> args call_args opt_call_args paren_args opt_paren_args aref_args command_args mrhs mrhs_arg
-%type <param> f_arg_item f_kw f_opt f_block_arg
+%type <param> f_arg_item f_kw f_opt f_block_arg f_rest_arg
 %type <params> f_arglist f_args f_arg opt_block_param f_kwarg opt_args_tail args_tail f_optarg 
 %type <body> bodystmt
 %type <when> when
@@ -639,8 +639,14 @@ args:
   {
     $$ = append($1, $3)
   }
-//| tSTAR arg_value
-//| args tCOMMA tSTAR arg_value
+| ASTERISK arg_value
+  {
+    $$ = ArgsNode{&SplatNode{Arg: $2}}
+  }
+| args COMMA ASTERISK arg_value
+  {
+    $$ = append($1, &SplatNode{Arg: $4})
+  }
 
 mrhs_arg: 
   mrhs
@@ -1320,16 +1326,29 @@ f_args:
   {
     $$ = []*Param{}
   }
+| f_arg COMMA f_optarg COMMA f_rest_arg opt_args_tail
+  {
+    $$ = append(append(append($1, $3...), $5), $6...)
+  }
+| f_arg COMMA f_rest_arg opt_args_tail
+  {
+    $$ = append(append($1, $3), $4...)
+  }
+| f_optarg COMMA f_rest_arg opt_args_tail
+  {
+    $$ = append(append($1, $3), $4...)
+  }
+| f_rest_arg opt_args_tail
+  {
+    $$ = append([]*Param{$1}, $2...)
+  }
 
-//f_args: f_arg tCOMMA f_optarg tCOMMA f_rest_arg              opt_args_tail
+
 //| f_arg tCOMMA f_optarg tCOMMA f_rest_arg tCOMMA f_arg opt_args_tail
 //| f_arg tCOMMA f_optarg tCOMMA                   f_arg opt_args_tail
-//| f_arg tCOMMA                 f_rest_arg              opt_args_tail
 //| f_arg tCOMMA                 f_rest_arg tCOMMA f_arg opt_args_tail
-//|              f_optarg tCOMMA f_rest_arg              opt_args_tail
 //|              f_optarg tCOMMA f_rest_arg tCOMMA f_arg opt_args_tail
 //|              f_optarg tCOMMA                   f_arg opt_args_tail
-//|                              f_rest_arg              opt_args_tail
 //|                              f_rest_arg tCOMMA f_arg opt_args_tail
 
 //f_bad_arg: tCONSTANT
@@ -1400,7 +1419,11 @@ f_optarg:
     $$ = append($1, $3)
   }
 //restarg_mark: tSTAR2 | tSTAR
-//f_rest_arg: restarg_mark tIDENTIFIER
+f_rest_arg: 
+	ASTERISK IDENT
+  {
+    $$ = &Param{Name: $2, Kind: Splat}  
+  }
 //| restarg_mark
 f_block_arg:
   AND IDENT
