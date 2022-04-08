@@ -50,4 +50,7 @@ func main() {
 	Splat(9, false)
 	Splat(9, false, []int{1, 2}...)
 	Splat(9, false, append([]int{5}, []int{1, 2}...)...)
+	foo := []int{1, 2, 3}
+	a, b := foo[0], foo[1:len(foo)]
+	c, d, e := foo[0], foo[1], foo[2:len(foo)]
 }

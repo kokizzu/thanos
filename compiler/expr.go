@@ -180,6 +180,8 @@ func (g *GoProgram) CompileExpr(node parser.Node) ast.Expr {
 		}
 	case *parser.SuperNode:
 		return g.CompileSuperNode(n)
+	case *parser.SplatNode:
+		return g.CompileExpr(n.Arg)
 	case *parser.Condition:
 		// The following duplicates much of what is done for an assignment with a
 		// conditional on the RHS, but we can't easily reuse that year because the local

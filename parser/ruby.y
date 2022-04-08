@@ -307,7 +307,10 @@ mlhs_basic:
   {
 		$$ = append($1, $2)
   }
-//| mlhs_head tSTAR mlhs_node
+| mlhs_head ASTERISK mlhs_node
+  {
+		$$ = append($1, &SplatNode{Arg: $3})
+  }
 //| mlhs_head tSTAR mlhs_node tCOMMA mlhs_post
 //| mlhs_head tSTAR
 //| mlhs_head tSTAR tCOMMA mlhs_post
@@ -702,7 +705,6 @@ primary:
   literal
 | string
 | raw_string
-// | xstring
 | regexp 
   { 
     $$ = $1 
@@ -1418,7 +1420,6 @@ f_optarg:
   {
     $$ = append($1, $3)
   }
-//restarg_mark: tSTAR2 | tSTAR
 f_rest_arg: 
 	ASTERISK IDENT
   {

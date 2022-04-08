@@ -45,3 +45,8 @@ splat(9, 2, c: true)
 splat(9)
 splat(9, *[1, 2])
 splat(9, 5, *[1, 2])
+
+foo = [1, 2, 3]
+
+a, *b = foo
+c, d, *e = foo
